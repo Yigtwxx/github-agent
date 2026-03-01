@@ -1,0 +1,13 @@
+/.env
+/.env.example
+/agent
+/api
+/chroma_db
+/core
+/database
+/ensure_db.py
+/fix_db_schema.py
+/init_db.py
+/requirements.txt
+/run.py
+/venv
