@@ -1,13 +1,38 @@
-/.env
-/.env.example
-/agent
-/api
-/chroma_db
-/core
-/database
-/ensure_db.py
-/fix_db_schema.py
-/init_db.py
-/requirements.txt
-/run.py
-/venv
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+
+# Environment Variables
+.env
+
+# Database
+*.db
+*.sqlite3
+
+# ChromaDB
+chroma_db/
+
+# Workspace (klonlanan repolar)
+workspace/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
