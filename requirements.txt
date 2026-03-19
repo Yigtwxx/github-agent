@@ -1,0 +1,30 @@
+# ── Core ──
+fastapi==0.111.0
+uvicorn==0.30.1
+pydantic-settings==2.3.4
+
+# ── Database ──
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9
+
+# ── HTTP ──
+httpx==0.27.0
+
+# ── AI ──
+ollama==0.2.1
+chromadb==0.5.0
+
+# ── Git ──
+gitpython==3.1.43
+
+# ── Docker ──
+docker==7.1.0
+
+# ── Logging ──
+loguru==0.7.2
+
+# ── Utilities ──
+requests==2.32.3
+numpy<2.0.0
+rich>=13.0.0
+python-dotenv>=1.0.0
