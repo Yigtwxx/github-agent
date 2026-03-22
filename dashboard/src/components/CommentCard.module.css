@@ -1,0 +1,101 @@
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+    transition: all 0.2s;
+    animation: fadeIn 0.3s ease;
+}
+
+.card:hover {
+    border-color: var(--border-bright);
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+    gap: 16px;
+}
+
+.id {
+    font-weight: 600;
+    color: var(--accent-blue);
+    font-size: 14px;
+}
+
+.meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+}
+
+.buttons {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.btnApprove,
+.btnReject {
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    border: none;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btnApprove {
+    background: linear-gradient(135deg, #238636, #3fb950);
+    color: #fff;
+}
+
+.btnApprove:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.btnReject {
+    background: var(--bg-hover);
+    color: var(--accent-red);
+    border: 1px solid var(--border);
+}
+
+.btnReject:hover {
+    background: rgba(248, 81, 73, 0.1);
+    border-color: var(--accent-red);
+}
+
+.btnApprove:disabled,
+.btnReject:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+.body {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+
+@media (max-width: 768px) {
+    .header {
+        flex-direction: column;
+    }
+}
