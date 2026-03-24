@@ -59,3 +59,5 @@ dashboard/.env*
 dashboard/.vercel
 dashboard/*.tsbuildinfo
 dashboard/next-env.d.ts
+
+CLAUDE.md
