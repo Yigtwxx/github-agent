@@ -1,0 +1,47 @@
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+}
+
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+    font-family: inherit;
+    color: var(--text-primary);
+}
+
+.card:hover {
+    border-color: var(--accent-blue);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-sm);
+}
+
+.triggered {
+    border-color: var(--accent-green) !important;
+}
+
+.triggered .title {
+    color: var(--accent-green);
+}
+
+.emoji {
+    font-size: 28px;
+    margin-bottom: 8px;
+}
+
+.title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.desc {
+    font-size: 12px;
+    color: var(--text-muted);
+}
