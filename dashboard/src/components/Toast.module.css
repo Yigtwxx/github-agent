@@ -1,0 +1,33 @@
+.container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.toast {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 20px;
+    font-size: 13px;
+    box-shadow: var(--shadow);
+    animation: slideIn 0.3s ease;
+    max-width: 360px;
+    color: var(--text-primary);
+}
+
+.success {
+    border-left: 3px solid var(--accent-green);
+}
+
+.error {
+    border-left: 3px solid var(--accent-red);
+}
+
+.info {
+    border-left: 3px solid var(--accent-blue);
+}
