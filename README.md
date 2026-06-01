@@ -1,10 +1,10 @@
-# 🤖 GitHub Autonomous AI Agent v2.0
+#  GitHub Autonomous AI Agent v2.0
 
 Popüler GitHub repolarını **otomatik keşfeden**, topluluk sorularına (Issue & Discussion) **AI cevapları üreten**, çözülebilir issue'lar için **gerçek kod yamaları oluşturup PR açan** otonom bir yapay zeka ajanı.
 
 ---
 
-## ✨ Özellikler
+##  Özellikler
 
 | Özellik | Açıklama |
 |---|---|
