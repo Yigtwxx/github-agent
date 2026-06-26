@@ -37,6 +37,11 @@ Thumbs.db
 *.log
 logs/
 
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
 # Dashboard (Next.js)
 dashboard/node_modules/
 dashboard/.pnp
