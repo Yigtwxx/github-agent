@@ -19,7 +19,11 @@ from typing import Optional
 from loguru import logger
 
 from agent.tools.github_client import GitHubGraphQLClient
-from agent.tools.ollama_client import OllamaAIClient
+from agent.ai import AIReasoningService
+from agent.providers import build_llm_provider
+from agent.scoring import score_issue, score_repo
+from agent.solver import IssueSolver
+from agent.trends import TrendAggregator
 from agent.tools.chroma_client import ChromaDBManager
 from agent.tools.docker_env import DockerSandbox
 from core.config import settings
@@ -46,9 +50,11 @@ class AgentOrchestrator:
         }
         # Tool bileşenleri
         self.github = GitHubGraphQLClient()
-        self.ai = OllamaAIClient()
+        self.ai = AIReasoningService(build_llm_provider())
         self.rag = ChromaDBManager()
         self.sandbox = DockerSandbox()
+        self.solver = IssueSolver(self.ai, self.sandbox, self.rag)
+        self.trend_aggregator = TrendAggregator(self.github)
 
     # ══════════════════════════════════════════════════════════
     #  ANA DÖNGÜ
@@ -116,6 +122,9 @@ class AgentOrchestrator:
             logger.warning("Trending repo bulunamadı.")
             return
 
+        # Sosyal/trend sinyallerini topla (github + HN + reddit), repo başına 0-100 skor.
+        trends = await self.trend_aggregator.aggregate(repos=repos)
+
         db = SessionLocal()
         try:
             for repo_data in repos:
@@ -124,6 +133,9 @@ class AgentOrchestrator:
                 if not owner or not name:
                     continue
 
+                trend = trends.get(f"{owner.lower()}/{name.lower()}")
+                trend_score = trend.trend_score if trend else 0.0
+
                 # Zaten var mı?
                 def check_repo():
                     return db.query(Repo).filter(
@@ -131,9 +143,13 @@ class AgentOrchestrator:
                     ).first()
                 existing = await asyncio.to_thread(check_repo)
                 if existing:
-                    # Star güncelle
+                    # Star + trend skoru güncelle
                     def update_existing():
                         existing.stars = repo_data.get("stargazerCount", existing.stars)
+                        existing.trend_score = trend_score
+                        existing.priority_score = self._calculate_priority(
+                            repo_data, trend_score=trend_score
+                        )
                         existing.last_checked_at = datetime.now(timezone.utc)
                         db.commit()
                     await asyncio.to_thread(update_existing)
@@ -157,7 +173,10 @@ class AgentOrchestrator:
                     topics=topics,
                     open_issue_count=open_issues,
                     is_trending=True,
-                    priority_score=self._calculate_priority(repo_data),
+                    trend_score=trend_score,
+                    priority_score=self._calculate_priority(
+                        repo_data, trend_score=trend_score
+                    ),
                 )
                 def commit_new_repo():
                     db.add(new_repo)
@@ -190,50 +209,9 @@ class AgentOrchestrator:
         finally:
             db.close()
 
-    def _calculate_priority(self, repo_data: dict) -> float:
-        """Repo öncelik skoru hesapla (0-100)."""
-        score = 0.0
-        stars = repo_data.get("stargazerCount", 0)
-        open_issues = repo_data.get("issues", {}).get("totalCount", 0)
-        has_discussions = repo_data.get("hasDiscussionsEnabled", False)
-
-        # Star skoru (max 40)
-        if stars >= 1000:
-            score += 40
-        elif stars >= 500:
-            score += 30
-        elif stars >= 100:
-            score += 20
-        else:
-            score += 10
-
-        # Issue skoru (max 30)
-        if open_issues >= 20:
-            score += 30
-        elif open_issues >= 10:
-            score += 25
-        elif open_issues >= 5:
-            score += 15
-        else:
-            score += 5
-
-        # Discussion desteği (max 15)
-        if has_discussions:
-            score += 15
-
-        # Dil bonus (Python ağırlıklı) (max 15)
-        lang = repo_data.get("primaryLanguage", {})
-        lang_name = lang.get("name", "") if lang else ""
-        if lang_name == "Python":
-            score += 15
-        elif lang_name in ("TypeScript", "JavaScript"):
-            score += 10
-        elif lang_name in ("Go", "Rust"):
-            score += 8
-        else:
-            score += 3
-
-        return min(score, 100.0)
+    def _calculate_priority(self, repo_data: dict, trend_score: float = 0.0) -> float:
+        """Repo öncelik skoru (0-100). Delegates to the scoring pipeline."""
+        return score_repo(repo_data, trend_score=trend_score)
 
     # ══════════════════════════════════════════════════════════
     #  PHASE 2: REPO SETUP - Klonla + RAG indeksle
@@ -610,18 +588,34 @@ class AgentOrchestrator:
 
         solvability = analysis.get("solvability", "SKIP")
         difficulty = analysis.get("difficulty", 10)
+        impact = analysis.get("impact", 5)
+
+        # Composite triage score gates the expensive solver.
+        triage = score_issue(
+            solvability=solvability,
+            difficulty=float(difficulty),
+            impact=float(impact),
+            labels=issue.labels or [],
+            repo_priority=repo.priority_score or 0.0,
+            comment_count=issue.comment_count or 0,
+        )
+
         issue.ai_solvability = solvability
         issue.ai_difficulty_score = float(difficulty)
+        issue.impact_score = triage.impact_score
+        issue.priority_score = triage.priority_score
         issue.analyzed_at = datetime.now(timezone.utc)
         db.commit()
 
         logger.info(
-            f"  📊 Analiz sonucu: {solvability} (zorluk: {difficulty}/10)"
+            f"  📊 Analiz: {solvability} (zorluk {difficulty}/10, etki {impact}/10, "
+            f"skor {triage.priority_score})"
         )
 
-        # Sadece SOLVABLE ve zorluk <= 6 olanları çöz
-        if solvability != "SOLVABLE" or difficulty > 6:
-            logger.info(f"  ⏭️ Issue #{issue.issue_number} atlanıyor ({solvability}, zorluk={difficulty})")
+        if not triage.should_attempt:
+            logger.info(
+                f"  ⏭️ Issue #{issue.issue_number} atlanıyor ({triage.reason})"
+            )
             return
 
         # 3. İlgili dosya içeriklerini oku
@@ -648,48 +642,33 @@ class AgentOrchestrator:
             db.commit()
             return
 
-        # 4. Kod fix üret
-        logger.info(f"  🔧 Kod fix üretiliyor... ({len(file_contents)} dosya bağlamında)")
-        fix_result = await self.ai.generate_code_fix(
+        # 4. Agentic solver: iteratif PATCH → VERIFY → REPAIR döngüsü
+        logger.info(
+            f"  🔧 Agentic solver başlıyor... ({len(file_contents)} dosya bağlamında, "
+            f"max {settings.SOLVER_MAX_ITERATIONS} iterasyon)"
+        )
+        ctx = await self.solver.solve(
+            clone_path=repo.cloned_path,
             issue_title=issue.title,
             issue_body=issue.body or "",
             file_contents=file_contents,
             suggested_approach=analysis.get("suggested_approach", ""),
         )
 
-        if not fix_result or "changes" not in fix_result:
-            logger.warning(f"  ⚠️ Kod fix üretilemedi")
-            return
-
-        changes = fix_result.get("changes", [])
+        changes = ctx.accumulated_changes
         if not changes:
+            logger.warning(f"  ⚠️ Solver kod üretemedi (durum: {ctx.verification_status})")
             return
 
-        # 5. Syntax kontrolü
-        all_valid = True
-        for change in changes:
-            fp = change.get("file_path", "")
-            if fp.endswith(".py"):
-                lint = await self.sandbox.lint_python_file(change.get("new_content", ""))
-                if not lint["valid"]:
-                    logger.warning(f"  ⚠️ Syntax hatası ({fp}): {lint['error']}")
-                    all_valid = False
+        sandbox_passed = (
+            None
+            if ctx.last_sandbox is None
+            else ctx.last_sandbox.get("status") == "success"
+        )
+        sandbox_logs = (ctx.last_sandbox or {}).get("logs", "")[:3000]
 
-        if not all_valid:
-            logger.warning(f"  ⚠️ Syntax hataları var, atlanıyor.")
-            return
-
-        # 6. Docker sandbox testi (opsiyonel)
-        sandbox_passed = None
-        sandbox_logs = ""
-        if self.sandbox.available and repo.cloned_path:
-            logger.info(f"  🐳 Docker sandbox testi çalıştırılıyor...")
-            test_result = await self.sandbox.run_tests(repo.cloned_path)
-            sandbox_passed = test_result["status"] == "success"
-            sandbox_logs = test_result.get("logs", "")[:3000]
-
-        # 7. Onay bekleyen aksiyon oluştur
-        commit_msg = fix_result.get("commit_message", f"fix: resolve issue #{issue.issue_number}")
+        # 5. Onay bekleyen aksiyon oluştur
+        commit_msg = ctx.commit_message or f"fix: resolve issue #{issue.issue_number}"
         branch_name = f"ai-fix/issue-{issue.issue_number}"
 
         action = AgentActionHistory(
@@ -701,11 +680,14 @@ class AgentOrchestrator:
             commit_message=commit_msg,
             sandbox_test_passed=sandbox_passed,
             sandbox_test_logs=sandbox_logs,
+            solver_iterations=ctx.iteration,
+            verification_status=ctx.verification_status,
             details={
                 "issue_url": issue.url,
                 "difficulty": difficulty,
-                "changes_summary": fix_result.get("summary", ""),
+                "changes_summary": ctx.summary,
                 "files_changed": [c["file_path"] for c in changes],
+                "solver_attempts": ctx.attempt_history,
             },
         )
         db.add(action)
@@ -725,28 +707,21 @@ class AgentOrchestrator:
             db.add(patch)
         db.commit()
 
-        # Terminal'de göster
-        print("\n" + "═" * 60)
-        print("🤖 AI TARAFINDAN ÖNERİLEN KOD DEĞİŞİKLİĞİ")
-        print("═" * 60)
-        print(f"  Repo  : {repo.owner}/{repo.name}")
-        print(f"  Issue : #{issue.issue_number} - {issue.title}")
-        print(f"  Zorluk: {difficulty}/10")
-        print(f"  Branch: {branch_name}")
-        print(f"  Commit: {commit_msg}")
-        if sandbox_passed is not None:
-            emoji = "✅" if sandbox_passed else "❌"
-            print(f"  Test  : {emoji} Docker sandbox")
-        print("─" * 60)
-        for change in changes:
-            print(f"  📄 {change['file_path']}")
-            print(f"     {change.get('explanation', 'N/A')}")
-        print("─" * 60)
-        print(f"  👉 Onay: http://127.0.0.1:8000/docs")
-        print(f"     Aksiyon ID: {action.id}")
-        print("═" * 60 + "\n")
-
-        logger.warning(f"  ⏳ ONAY BEKLİYOR: Aksiyon #{action.id}")
+        # Log a structured summary; the dashboard surfaces the full proposal.
+        logger.info(
+            "AI code change proposed | repo={}/{} issue=#{} difficulty={}/10 "
+            "branch={} files={} verification={} iterations={} action_id={}",
+            repo.owner,
+            repo.name,
+            issue.issue_number,
+            difficulty,
+            branch_name,
+            [c["file_path"] for c in changes],
+            ctx.verification_status,
+            ctx.iteration,
+            action.id,
+        )
+        logger.warning(f"⏳ AWAITING APPROVAL: action #{action.id}")
 
     # ══════════════════════════════════════════════════════════
     #  PHASE 6: ONAY SONRASI İŞLEMLER
