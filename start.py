@@ -8,7 +8,7 @@ Bu dosyayı çalıştırın, gerisini o halletsin:
   3. ✅ FastAPI sunucusunu arka planda başlat
   4. ✅ Sunucunun hazır olmasını bekle
   5. ✅ Dashboard'u tarayıcıda aç
-  6. ✅ Terminal CLI'ı başlat (interaktif kontrol)
+  6. ✅ Sunucuları canlı tut (Ctrl+C ile çıkış)
 
 Kullanım:
   python start.py
@@ -56,26 +56,62 @@ def warn(msg):
     print(f"  {C.YELLOW}⚠ {msg}{C.RESET}")
 
 
-TOTAL_STEPS = 7
+TOTAL_STEPS = 6
 VENV_PYTHON = os.path.join("venv", "Scripts", "python.exe") if os.name == "nt" else os.path.join("venv", "bin", "python")
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 server_process = None
 dashboard_process = None
+LOG_DIR = os.path.join(PROJECT_DIR, "logs")
+SERVER_LOG = os.path.join(LOG_DIR, "server.log")
+DASHBOARD_LOG = os.path.join(LOG_DIR, "dashboard.log")
+_log_handles = []
+STARTUP_TIMEOUT = 120  # saniye (soguk Next.js derlemesi yavas olabilir)
 
 
-def cleanup(signum=None, frame=None):
-    """Çıkışta sunucuyu kapat."""
+def _terminate(proc):
+    """Bir process'i alt sürec agaciyla birlikte sonlandir.
+
+    npm.cmd, gercek next-dev node cocuklarini birakir; sadece terminate()
+    cagirmak bunlari orphan olarak birakir ve portlari dolu tutar.
+    Windows'ta tum agaci taskkill /T ile kapatmak bunu onler.
+    """
+    if not proc or proc.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+            capture_output=True,
+        )
+    else:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+def _tail(path, lines=20):
+    """Log dosyasinin son satirlarini dondur (hata teshisi icin)."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return "".join(f.readlines()[-lines:]).strip()
+    except OSError:
+        return ""
+
+
+def cleanup(signum=None, frame=None, code=0):
+    """Çıkışta sunucuları (ve alt süreçlerini) kapat."""
     global server_process, dashboard_process
     print(f"\n  {C.DIM}🛑 Sunucular kapatılıyor...{C.RESET}")
     for p in [server_process, dashboard_process]:
-        if p and p.poll() is None:
-            p.terminate()
-            try:
-                p.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                p.kill()
+        _terminate(p)
+    for h in _log_handles:
+        try:
+            h.close()
+        except OSError:
+            pass
     print(f"\n  {C.GREEN}👋 Görüşmek üzere!{C.RESET}\n")
-    sys.exit(0)
+    sys.exit(code)
 
 
 signal.signal(signal.SIGINT, cleanup)
@@ -137,12 +173,16 @@ def start_server():
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
 
-    # Sunucuyu arka plan işlemi olarak başlat
+    os.makedirs(LOG_DIR, exist_ok=True)
+    log = open(SERVER_LOG, "w", encoding="utf-8")
+    _log_handles.append(log)
+
+    # Çıktıyı log dosyasına yönlendir — dolan PIPE buffer'ı child'ı bloke ederdi.
     server_process = subprocess.Popen(
         [python_exe, "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"],
         cwd=PROJECT_DIR,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=log,
+        stderr=subprocess.STDOUT,
         env=env,
     )
     ok("(PID: {})".format(server_process.pid))
@@ -155,12 +195,16 @@ def start_dashboard():
     npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
     dashboard_dir = os.path.join(PROJECT_DIR, "dashboard")
 
-    # Next.js sunucusunu arka planda başlat
+    os.makedirs(LOG_DIR, exist_ok=True)
+    log = open(DASHBOARD_LOG, "w", encoding="utf-8")
+    _log_handles.append(log)
+
+    # Çıktıyı log dosyasına yönlendir — Next.js bol çıktı üretir, PIPE dolarsa kilitlenir.
     dashboard_process = subprocess.Popen(
         [npm_cmd, "run", "dev"],
         cwd=dashboard_dir,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=log,
+        stderr=subprocess.STDOUT,
     )
     ok("(PID: {})".format(dashboard_process.pid))
 
@@ -172,24 +216,19 @@ def wait_for_servers():
 
     api_ready = False
     dash_ready = False
-    max_attempts = 45
+    deadline = time.time() + STARTUP_TIMEOUT
 
-    for i in range(max_attempts):
-        # API kontrol
+    while time.time() < deadline:
         if not api_ready:
             try:
-                # /health yerine ana dizin yeterli
-                req = urllib.request.urlopen("http://127.0.0.1:8000/docs", timeout=1)
-                if req.status == 200:
+                if urllib.request.urlopen("http://127.0.0.1:8000/docs", timeout=1).status == 200:
                     api_ready = True
             except Exception:
                 pass
 
-        # Dashboard kontrol
         if not dash_ready:
             try:
-                req = urllib.request.urlopen("http://127.0.0.1:3000/", timeout=1)
-                if req.status == 200:
+                if urllib.request.urlopen("http://127.0.0.1:3000/", timeout=1).status == 200:
                     dash_ready = True
             except Exception:
                 pass
@@ -198,58 +237,48 @@ def wait_for_servers():
             ok()
             return True
 
+        # Bir süreç çöktüyse log'un sonunu göster ve düzgün temizlen.
         if server_process and server_process.poll() is not None:
             fail("FastAPI sunucusu çöktü!")
-            stderr = server_process.stderr.read().decode('utf-8', errors='ignore') if server_process.stderr else ""
-            if stderr:
-                print(f"    {C.RED}{stderr.strip()}{C.RESET}")
-            sys.exit(1)
-            
+            print(f"    {C.RED}{_tail(SERVER_LOG)}{C.RESET}")
+            cleanup(code=1)
+
         if dashboard_process and dashboard_process.poll() is not None:
             fail("Next.js sunucusu çöktü!")
-            stderr = dashboard_process.stderr.read().decode('utf-8', errors='ignore') if dashboard_process.stderr else ""
-            if stderr:
-                print(f"    {C.RED}{stderr.strip()}{C.RESET}")
-            sys.exit(1)
+            print(f"    {C.RED}{_tail(DASHBOARD_LOG)}{C.RESET}")
+            cleanup(code=1)
 
         time.sleep(1)
 
-    fail("Sunucular yanıt vermedi (45s timeout)")
-    sys.exit(1)
+    fail(f"Sunucular {STARTUP_TIMEOUT}s içinde yanıt vermedi")
+    if not api_ready:
+        print(f"    {C.YELLOW}API logu (logs/server.log):{C.RESET}\n{_tail(SERVER_LOG)}")
+    if not dash_ready:
+        print(f"    {C.YELLOW}Dashboard logu (logs/dashboard.log):{C.RESET}\n{_tail(DASHBOARD_LOG)}")
+    cleanup(code=1)
 
 
-def open_dashboard():
-    """6. Dashboard'u tarayıcıda aç."""
-    step(6, TOTAL_STEPS, "Dashboard tarayıcıda açılıyor...")
+def serve_forever():
+    """6. Dashboard'u aç ve sunucuları canlı tut; Ctrl+C ile kapat."""
+    step(6, TOTAL_STEPS, "Sunucular hazır.\n")
     url = "http://localhost:3000/"
     try:
         webbrowser.open(url)
-        ok(url)
     except Exception:
-        warn(f"Tarayıcı açılamadı. Manuel: {url}")
-
-
-def launch_cli():
-    """7. Terminal CLI'ı başlat."""
-    step(7, TOTAL_STEPS, "Terminal CLI başlatılıyor...\n")
+        pass
     print(f"  {C.DIM}─────────────────────────────────────────{C.RESET}")
-    print(f"  {C.GREEN}Sunucular arka planda çalışıyor.{C.RESET}")
-    print(f"  {C.GREEN}Dashboard: http://localhost:3000/{C.RESET}")
+    print(f"  {C.GREEN}Dashboard: {url}{C.RESET}")
     print(f"  {C.GREEN}API Docs : http://localhost:8000/docs{C.RESET}")
-    print(f"  {C.DIM}CLI'dan çıkmak = sunucular da kapanır.{C.RESET}")
+    print(f"  {C.DIM}Loglar   : logs/server.log, logs/dashboard.log{C.RESET}")
+    print(f"  {C.DIM}Kapatmak için Ctrl+C.{C.RESET}")
     print(f"  {C.DIM}─────────────────────────────────────────{C.RESET}\n")
 
-    # CLI'ı aynı süreçte çalıştır (interaktif olması için)
-    python_exe = os.path.join(PROJECT_DIR, VENV_PYTHON)
+    # Süreçleri canlı tut; signal handler (cleanup) çıkışı yönetir.
     try:
-        cli_result = subprocess.run(
-            [python_exe, "cli.py"],
-            cwd=PROJECT_DIR,
-        )
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
-        pass
-
-    cleanup()
+        cleanup()
 
 
 def main():
@@ -261,8 +290,7 @@ def main():
     start_server()
     start_dashboard()
     wait_for_servers()
-    open_dashboard()
-    launch_cli()
+    serve_forever()
 
 
 if __name__ == "__main__":
