@@ -1,6 +1,14 @@
 """
-Veritabanı tablolarını oluşturur / günceller.
-İlk kurulumda veya şema değişikliğinde çalıştırın.
+Veritabanı tablolarını oluşturur (bootstrap).
+
+NOT: `create_all()` yalnızca EKSİK TABLOLARI oluşturur; mevcut tablolara yeni
+SÜTUN EKLEMEZ. Şema değişiklikleri (sütun ekleme/çıkarma) artık Alembic ile
+yönetilir:
+
+  - Yeni / boş DB:    python init_db.py  &&  alembic stamp head
+  - Mevcut DB güncelle:                     alembic upgrade head
+  - Model değiştikten sonra:
+        alembic revision --autogenerate -m "..."  &&  alembic upgrade head
 """
 from loguru import logger
 
@@ -13,6 +21,7 @@ def init_db():
         from database.models import (  # noqa: F401
             Repo, Issue, Discussion,
             AgentComment, CodePatch, AgentActionHistory,
+            TrendSignal,
         )
         Base.metadata.create_all(bind=engine)
         logger.success("Veritabanı tabloları başarıyla oluşturuldu / güncellendi.")
