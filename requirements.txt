@@ -6,6 +6,7 @@ pydantic-settings==2.3.4
 # ── Database ──
 sqlalchemy==2.0.30
 psycopg2-binary==2.9.9
+alembic==1.13.2         # schema migrations (model -> DB column sync)
 
 # ── HTTP ──
 httpx==0.27.0
@@ -13,6 +14,13 @@ httpx==0.27.0
 # ── AI ──
 ollama==0.2.1
 chromadb==0.5.0
+openai>=1.54,<3         # OpenAI-compatible client (Groq, HuggingFace router)
+tenacity==9.0.0         # retry/backoff for LLM + HTTP calls
+tiktoken==0.8.0         # token counting / budget trimming
+jinja2==3.1.4           # prompt templates
+rank-bm25==0.2.2        # lexical retrieval for hybrid RAG
+# Optional cross-encoder rerank (heavy; install manually to enable):
+#   pip install sentence-transformers torch  (CPU build is fine)
 
 # ── Git ──
 gitpython==3.1.43
@@ -28,3 +36,6 @@ requests==2.32.3
 numpy<2.0.0
 rich>=13.0.0
 python-dotenv>=1.0.0
+
+# ── Test ──
+pytest>=8.0
