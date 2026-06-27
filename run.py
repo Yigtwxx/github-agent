@@ -15,7 +15,7 @@ def check_prerequisites():
     """Başlatma öncesi ön koşul kontrolü."""
     errors = []
 
-    if not settings.GITHUB_TOKEN:
+    if not settings.GITHUB_TOKEN.get_secret_value():
         errors.append("❌ GITHUB_TOKEN ayarlanmamış! .env dosyasını kontrol edin.")
 
     if not os.path.exists(".env"):
