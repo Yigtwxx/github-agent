@@ -49,7 +49,7 @@ Popüler GitHub repolarını **otomatik keşfeden**, topluluk sorularına (Issue
 ### Ön Gereksinimler
 - **Python 3.10+**
 - **PostgreSQL** (veri depolama)
-- **Ollama** + `qwen2.5-coder:7b` modeli
+- **Ollama** + `qwen3-coder:30b` modeli
 - **Docker** (sandbox testleri için)
 - **Git** (repo klonlama için)
 
@@ -64,8 +64,8 @@ python -m venv venv
 # Bağımlılıklar
 pip install -r requirements.txt
 
-# Ollama modeli
-ollama pull qwen2.5-coder:7b
+# Ollama modeli (start.ps1 bunu otomatik indirir; elle de yapabilirsiniz)
+ollama pull qwen3-coder:30b
 ```
 
 ### 2. Yapılandırma
@@ -81,17 +81,36 @@ copy .env.example .env    # Windows
 
 ### 3. Veritabanı
 
+Şema değişiklikleri Alembic ile yönetilir (`create_all()` mevcut tablolara sütun eklemez).
+
 ```bash
-python init_db.py
+# Yeni / boş veritabanı:
+python init_db.py && alembic stamp head
+
+# Mevcut veritabanını güncelle (bekleyen migration'ları uygula):
+alembic upgrade head
+
+# Model değiştikten sonra yeni migration üret:
+alembic revision --autogenerate -m "açıklama" && alembic upgrade head
 ```
 
 ### 4. Çalıştırma
 
-```bash
-python run.py
+**Önerilen (Windows) — tek tıkla her şeyi başlatır:**
+PostgreSQL servisi + Ollama (serve & model indirme) + DB init + FastAPI (:8000) + Next.js (:3000).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
-Swagger UI: http://localhost:8000/docs
+Alternatifler:
+
+```bash
+python start.py   # cross-platform; PostgreSQL/Ollama'yı başlatmaz
+python run.py     # yalnızca FastAPI (:8000)
+```
+
+Dashboard: http://localhost:3000 · Swagger UI: http://localhost:8000/docs
 
 ---
 
@@ -117,7 +136,7 @@ Swagger UI: http://localhost:8000/docs
 
 | Değişken | Varsayılan | Açıklama |
 |----------|-----------|----------|
-| `OLLAMA_MODEL` | `qwen2.5-coder:7b` | AI modeli |
+| `OLLAMA_MODEL` | `qwen3-coder:30b` | AI modeli |
 | `TRENDING_DAYS_AGO` | `7` | Kaç gün öncesine kadar repo ara |
 | `MIN_STARS_THRESHOLD` | `50` | Minimum yıldız sayısı |
 | `LOOP_INTERVAL_SECONDS` | `3600` | Ana döngü aralığı (saniye) |
@@ -133,9 +152,10 @@ Swagger UI: http://localhost:8000/docs
 github-agent/
 ├── agent/
 │   ├── orchestrator.py      # Ana orkestratör (6 phase pipeline)
+│   ├── providers/           # Değiştirilebilir LLM provider'ları (Groq/Ollama/HF)
+│   ├── ai/                  # AIReasoningService (provider-bağımsız akıl yürütme)
 │   └── tools/
 │       ├── github_client.py  # GitHub API (GraphQL + REST)
-│       ├── ollama_client.py  # AI engine (5 prompt stratejisi)
 │       ├── chroma_client.py  # RAG pipeline
 │       └── docker_env.py     # Docker sandbox
 ├── api/
@@ -147,8 +167,9 @@ github-agent/
 │   └── session.py           # DB bağlantı yönetimi
 ├── workspace/               # Klonlanan repolar (otomatik)
 ├── chroma_db/               # Vektör DB (otomatik)
+├── alembic/                 # DB şema migration'ları (Alembic)
 ├── run.py                   # Başlatma
-├── init_db.py               # DB tabloları oluşturma
+├── init_db.py               # DB tabloları oluşturma (bootstrap)
 ├── requirements.txt
 ├── .env.example
 └── .gitignore
@@ -156,4 +177,4 @@ github-agent/
 
 ---
 
-*Powered by Ollama (qwen2.5-coder) + GitHub GraphQL API + ChromaDB + Docker*
+*Powered by Groq / Ollama (swappable LLM) + GitHub GraphQL API + ChromaDB + Docker*
