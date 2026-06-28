@@ -4,7 +4,7 @@ Repo, Issue, Discussion, AgentComment, CodePatch, AgentActionHistory.
 """
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, ForeignKey,
-    Boolean, JSON, UniqueConstraint, Float
+    Boolean, JSON, UniqueConstraint, Float, Index
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -36,7 +36,9 @@ class Repo(Base):
     last_checked_at = Column(DateTime, nullable=True)
 
     # Skor: repo ne kadar değerli bir hedef? (0-100)
-    priority_score = Column(Float, default=0.0)
+    priority_score = Column(Float, default=0.0, index=True)
+    # Aggregated social/trend signal score (0-100), set by the trend aggregator.
+    trend_score = Column(Float, default=0.0)
 
     discovered_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -69,6 +71,9 @@ class Issue(Base):
     # AI tarafından atanan zorluk skoru (1-10)
     ai_difficulty_score = Column(Float, nullable=True)
     ai_solvability = Column(String, nullable=True)     # SOLVABLE, NEEDS_INFO, TOO_COMPLEX, SKIP
+    # AI-estimated impact (1-10) and composite triage score (0-100).
+    impact_score = Column(Float, nullable=True)
+    priority_score = Column(Float, default=0.0, index=True)
 
     created_at = Column(DateTime, nullable=True)
     analyzed_at = Column(DateTime, nullable=True)
@@ -77,6 +82,7 @@ class Issue(Base):
 
     __table_args__ = (
         UniqueConstraint("repo_id", "issue_number", name="uq_issue_repo_number"),
+        Index("ix_issue_state_solvability", "state", "ai_solvability"),
     )
 
 
@@ -181,9 +187,35 @@ class AgentActionHistory(Base):
     sandbox_test_passed = Column(Boolean, nullable=True)
     sandbox_test_logs = Column(Text, nullable=True)
 
+    # Agentic solver metadata (Phase 6)
+    solver_iterations = Column(Integer, nullable=True)
+    # PASSED | FAILED | SKIPPED | UNVERIFIED
+    verification_status = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
 
     repo = relationship("Repo", back_populates="actions")
     issue = relationship("Issue")
     patches = relationship("CodePatch", back_populates="action", cascade="all, delete-orphan")
+
+
+# ──────────────────────────────────────────────────────────────
+# TREND SIGNAL  (Phase 7 — per-source social/popularity signals)
+# ──────────────────────────────────────────────────────────────
+class TrendSignal(Base):
+    __tablename__ = "trend_signals"
+    __table_args__ = (
+        UniqueConstraint("repo_owner", "repo_name", "source", name="uq_trend_repo_source"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    repo_owner = Column(String, nullable=False, index=True)
+    repo_name = Column(String, nullable=False, index=True)
+    source = Column(String, nullable=False)        # github_search | github_stars | hackernews | reddit
+
+    raw_score = Column(Float, default=0.0)         # source-native magnitude
+    normalized_score = Column(Float, default=0.0)  # 0-100 within the cycle's batch
+    meta = Column(JSON, nullable=True)             # source-specific detail (points, ups, ...)
+
+    collected_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
