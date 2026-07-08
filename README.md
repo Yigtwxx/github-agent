@@ -1,10 +1,15 @@
-#  GitHub Autonomous AI Agent v2.0
+# GitHub Autonomous AI Agent
 
-An autonomous AI agent that **automatically discovers** trending GitHub repositories, **generates AI answers** to community questions (Issues & Discussions), and **creates real code patches and opens PRs** for solvable issues.
+[![CI](https://github.com/Yigtwxx/github-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Yigtwxx/github-agent/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![Next.js](https://img.shields.io/badge/next.js-16-black)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+An autonomous AI agent that **automatically discovers** trending GitHub repositories, **generates AI answers** to community questions (Issues & Discussions), and **creates real code patches and opens PRs** for solvable issues — all gated behind a human-in-the-loop approval workflow.
 
 ---
 
-##  Features
+## ✨ Features
 
 | Feature | Description |
 |---|---|
@@ -23,23 +28,23 @@ An autonomous AI agent that **automatically discovers** trending GitHub reposito
 ## 🛠️ Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│              FastAPI (api/main.py)           │
-│  /health  /stats  /pending  /approve  /...  │
-└──────────────────┬──────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────┐
-│         Agent Orchestrator                   │
-│  6 Phase Pipeline:                           │
-│  Trend → Setup → Community → Discussion     │
-│  → Issue Solve → PR Pipeline                │
-└──┬───────┬───────┬───────┬──────────────────┘
-   │       │       │       │
-┌──▼──┐ ┌──▼──┐ ┌──▼──┐ ┌──▼──┐
-│ Git │ │ AI  │ │ RAG │ │Docker│
-│ Hub │ │Ollama│ │Chroma│ │Sand │
-│Client│ │Client│ │ DB  │ │ box │
-└─────┘ └─────┘ └─────┘ └─────┘
+┌──────────────────────────────────────────────┐
+│             FastAPI (api/main.py)            │
+│  /health  /stats  /pending  /approve  /...   │
+└──────────────────────┬───────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────┐
+│              Agent Orchestrator              │
+│              6-phase pipeline:               │
+│    Trend Hunt → Repo Setup → Community →     │
+│  Discussions → Issue Solving → PR Pipeline   │
+└─────┬─────────┬──────────┬──────────┬────────┘
+      │         │          │          │
+┌─────▼────┐ ┌──▼───────┐ ┌▼────────┐ ┌▼───────┐
+│  GitHub  │ │   LLM    │ │   RAG   │ │ Docker │
+│  Client  │ │Providers │ │ChromaDB │ │Sandbox │
+│(GQL+REST)│ │Groq/Olla.│ │         │ │        │
+└──────────┘ └──────────┘ └─────────┘ └────────┘
 ```
 
 ---
@@ -96,18 +101,17 @@ alembic revision --autogenerate -m "description" && alembic upgrade head
 
 ### 4. Running
 
-**Recommended (Windows) — starts everything with one click:**
+**Single entry point — starts everything with one click:**
 PostgreSQL service + Ollama (serve & model pull) + DB init + FastAPI (:8000) + Next.js (:3000).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
-Alternatives:
+FastAPI only (e.g. for API debugging):
 
-```bash
-python start.py   # cross-platform; does NOT start PostgreSQL/Ollama
-python run.py     # FastAPI only (:8000)
+```powershell
+venv\Scripts\python.exe -m uvicorn api.main:app --host 0.0.0.0 --port 8000
 ```
 
 Dashboard: http://localhost:3000 · Swagger UI: http://localhost:8000/docs
@@ -151,29 +155,40 @@ Dashboard: http://localhost:3000 · Swagger UI: http://localhost:8000/docs
 ```
 github-agent/
 ├── agent/
-│   ├── orchestrator.py      # Main orchestrator (6 phase pipeline)
-│   ├── providers/           # Swappable LLM providers (Groq/Ollama/HF)
+│   ├── orchestrator.py      # Main orchestrator (6-phase pipeline)
 │   ├── ai/                  # AIReasoningService (provider-agnostic reasoning)
+│   ├── providers/           # Swappable LLM providers (Groq / Ollama / HF)
+│   ├── prompts/             # Jinja2 prompt templates
+│   ├── rag/                 # Chunking, retrieval, reranking
+│   ├── scoring/             # Repo & issue prioritization
+│   ├── solver/              # Agentic code-fix loop (patch + verify)
+│   ├── trends/              # Trend aggregation (GitHub, HN, Reddit)
 │   └── tools/
-│       ├── github_client.py  # GitHub API (GraphQL + REST)
-│       ├── chroma_client.py  # RAG pipeline
-│       └── docker_env.py     # Docker sandbox
+│       ├── github_client.py # GitHub API (GraphQL + REST)
+│       ├── chroma_client.py # ChromaDB indexing & search
+│       └── docker_env.py    # Docker sandbox
 ├── api/
 │   └── main.py              # FastAPI endpoints
 ├── core/
-│   └── config.py            # Configuration
+│   └── config.py            # Pydantic settings (.env)
 ├── database/
-│   ├── models.py            # 6 SQLAlchemy models
+│   ├── models.py            # SQLAlchemy models
 │   └── session.py           # DB connection management
-├── workspace/               # Cloned repos (auto-generated)
-├── chroma_db/               # Vector DB (auto-generated)
-├── alembic/                 # DB schema migrations (Alembic)
-├── run.py                   # Entry point
-├── init_db.py               # DB table creation (bootstrap)
-├── requirements.txt
-├── .env.example
-└── .gitignore
+├── dashboard/               # Next.js approval & monitoring UI
+├── alembic/                 # DB schema migrations
+├── tests/                   # Pytest suite
+├── .github/workflows/       # CI (lint + typecheck + tests + build)
+├── start.ps1                # One-click launcher (single entry point)
+├── init_db.py               # DB bootstrap
+├── pyproject.toml           # Ruff + pytest config
+└── requirements.txt
 ```
+
+---
+
+## 📄 License
+
+Released under the [MIT License](LICENSE).
 
 ---
 
