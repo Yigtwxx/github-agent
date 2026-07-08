@@ -20,12 +20,13 @@ venv/
 # ChromaDB
 chroma_db/
 
-# Workspace (klonlanan repolar)
+# Workspace (cloned repositories)
 workspace/
 
-# IDE
+# IDE / AI assistant
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 
