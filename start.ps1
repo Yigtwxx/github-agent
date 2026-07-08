@@ -9,8 +9,8 @@
       2. PostgreSQL  - start the local Windows service, wait for port 5432
       3. Ollama      - start `ollama serve` if needed, pull the model if missing
       4. Database    - create/update tables (init_db.py)
-      5. FastAPI     - background process on :8000 (logs/server.log)
-      6. Next.js     - background dev server on :3000 (logs/dashboard.log)
+      5. FastAPI     - background process on :8000 (logs stream to this console)
+      6. Next.js     - background dev server on :3000 (logs stream to this console)
       7. Wait until both are ready, open the dashboard, keep alive (Ctrl+C to stop)
 
 .EXAMPLE
@@ -26,10 +26,6 @@ $ErrorActionPreference = "Stop"
 $ProjectDir   = $PSScriptRoot
 $VenvPython   = Join-Path $ProjectDir "venv\Scripts\python.exe"
 $DashboardDir = Join-Path $ProjectDir "dashboard"
-$LogDir       = Join-Path $ProjectDir "logs"
-$ServerLog    = Join-Path $LogDir "server.log"
-$DashboardLog = Join-Path $LogDir "dashboard.log"
-$OllamaLog    = Join-Path $LogDir "ollama.log"
 
 $OllamaModel    = "qwen3-coder:30b"
 $OllamaPort     = 11434
@@ -45,7 +41,7 @@ $script:OwnedProcs = @()
 function Write-Banner {
     Write-Host ""
     Write-Host "  ╔══════════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "  ║          🤖 GitHub AI Agent - Başlatıcı          ║" -ForegroundColor Cyan
+    Write-Host "  ║          🤖 GitHub AI Agent - Launcher           ║" -ForegroundColor Cyan
     Write-Host "  ╚══════════════════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
 }
@@ -91,24 +87,16 @@ function Test-HttpOk {
     }
 }
 
-function Get-LogTail {
-    param([string]$Path, [int]$Lines = 20)
-    if (Test-Path $Path) {
-        return (Get-Content -Path $Path -Tail $Lines -ErrorAction SilentlyContinue) -join "`n"
-    }
-    return ""
-}
-
 function Stop-OwnedProcs {
     Write-Host ""
-    Write-Host "  🛑 Sunucular kapatılıyor..." -ForegroundColor DarkGray
+    Write-Host "  🛑 Shutting down servers..." -ForegroundColor DarkGray
     foreach ($p in $script:OwnedProcs) {
         if ($null -ne $p -and -not $p.HasExited) {
             # taskkill /T kills the whole child tree (npm -> next-dev node children).
             & taskkill /F /T /PID $p.Id 2>$null | Out-Null
         }
     }
-    Write-Host "  👋 Görüşmek üzere!" -ForegroundColor Green
+    Write-Host "  👋 See you soon!" -ForegroundColor Green
     Write-Host ""
 }
 
@@ -116,26 +104,26 @@ function Stop-OwnedProcs {
 # 1. Pre-flight checks
 # ════════════════════════════════════════════════════════════════
 function Invoke-PreChecks {
-    Write-Step 1 $TotalSteps "Ön kontroller yapılıyor..."
+    Write-Step 1 $TotalSteps "Running pre-flight checks..."
     $errors = @()
 
     $envPath = Join-Path $ProjectDir ".env"
     if (-not (Test-Path $envPath)) {
-        $errors += ".env dosyası bulunamadı! .env.example dosyasını kopyalayın."
+        $errors += ".env file not found! Copy the .env.example file."
     } else {
         $tokenLine = Select-String -Path $envPath -Pattern '^\s*GITHUB_TOKEN\s*=\s*(.+)$' -ErrorAction SilentlyContinue
         $tokenVal = if ($tokenLine) { $tokenLine.Matches[0].Groups[1].Value.Trim() } else { "" }
         if (-not $tokenVal -or $tokenVal -eq "ghp_YOUR_TOKEN_HERE") {
-            $errors += "GITHUB_TOKEN ayarlanmamış! .env dosyasını düzenleyin."
+            $errors += "GITHUB_TOKEN is not set! Edit the .env file."
         }
     }
 
     if (-not (Test-Path $VenvPython)) {
-        $errors += "Virtual environment bulunamadı (venv\Scripts\python.exe). 'python -m venv venv' çalıştırın."
+        $errors += "Virtual environment not found (venv\Scripts\python.exe). Run 'python -m venv venv'."
     }
 
     if ($errors.Count -gt 0) {
-        Write-Err "Ön kontroller başarısız!"
+        Write-Err "Pre-flight checks failed!"
         foreach ($e in $errors) { Write-Host "      • $e" -ForegroundColor Red }
         exit 1
     }
@@ -146,16 +134,16 @@ function Invoke-PreChecks {
 # 2. PostgreSQL (local Windows service)
 # ════════════════════════════════════════════════════════════════
 function Start-Postgres {
-    Write-Step 2 $TotalSteps "PostgreSQL başlatılıyor..."
+    Write-Step 2 $TotalSteps "Starting PostgreSQL..."
 
     if (Test-Port -Port $PostgresPort) {
-        Write-Ok "Zaten çalışıyor (port $PostgresPort)."
+        Write-Ok "Already running (port $PostgresPort)."
         return
     }
 
     $svc = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $svc) {
-        Write-Warn "PostgreSQL Windows servisi bulunamadı. DB'yi elle başlatın (port $PostgresPort)."
+        Write-Warn "PostgreSQL Windows service not found. Start the DB manually (port $PostgresPort)."
         return
     }
 
@@ -163,15 +151,15 @@ function Start-Postgres {
         try {
             Start-Service -Name $svc.Name -ErrorAction Stop
         } catch {
-            Write-Warn "Servis başlatılamadı ($($svc.Name)). Yönetici izni gerekebilir: $($_.Exception.Message)"
+            Write-Warn "Failed to start service ($($svc.Name)). Administrator rights may be required: $($_.Exception.Message)"
             return
         }
     }
 
     if (Wait-Port -Port $PostgresPort -TimeoutSec 30 -Label "PostgreSQL") {
-        Write-Ok "$($svc.Name) çalışıyor (port $PostgresPort)."
+        Write-Ok "$($svc.Name) is running (port $PostgresPort)."
     } else {
-        Write-Warn "PostgreSQL servisi başladı ama port $PostgresPort yanıt vermedi."
+        Write-Warn "PostgreSQL service started but port $PostgresPort did not respond."
     }
 }
 
@@ -179,41 +167,39 @@ function Start-Postgres {
 # 3. Ollama (serve + auto-pull)
 # ════════════════════════════════════════════════════════════════
 function Start-Ollama {
-    Write-Step 3 $TotalSteps "Ollama hazırlanıyor ($OllamaModel)..."
+    Write-Step 3 $TotalSteps "Preparing Ollama ($OllamaModel)..."
 
     $ollama = Get-Command ollama -ErrorAction SilentlyContinue
     if (-not $ollama) {
-        Write-Warn "'ollama' komutu PATH'te yok. https://ollama.com/download adresinden kurun."
+        Write-Warn "'ollama' command not found in PATH. Install it from https://ollama.com/download."
         return
     }
 
     # Ensure the server is up.
     if (-not (Test-Port -Port $OllamaPort)) {
-        New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-        Start-Process -FilePath "ollama" -ArgumentList "serve" `
-            -RedirectStandardOutput $OllamaLog -RedirectStandardError "$OllamaLog.err" `
-            -WindowStyle Hidden | Out-Null
+        # Hidden window: ollama serve output is too chatty for the shared console.
+        Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden | Out-Null
         if (Wait-Port -Port $OllamaPort -TimeoutSec 30 -Label "Ollama") {
-            Write-Ok "ollama serve başlatıldı (port $OllamaPort)."
+            Write-Ok "ollama serve started (port $OllamaPort)."
         } else {
-            Write-Warn "ollama serve başlatıldı ama port $OllamaPort yanıt vermedi."
+            Write-Warn "ollama serve started but port $OllamaPort did not respond."
             return
         }
     } else {
-        Write-Ok "Ollama zaten çalışıyor (port $OllamaPort)."
+        Write-Ok "Ollama already running (port $OllamaPort)."
     }
 
     # Ensure the model is present.
     $models = (& ollama list 2>$null) -join "`n"
     if ($models -match [regex]::Escape($OllamaModel)) {
-        Write-Ok "Model mevcut: $OllamaModel"
+        Write-Ok "Model present: $OllamaModel"
     } else {
-        Write-Warn "Model bulunamadı; indiriliyor: $OllamaModel (büyük dosya, sürebilir)..."
+        Write-Warn "Model not found; downloading: $OllamaModel (large file, may take a while)..."
         & ollama pull $OllamaModel
         if ($LASTEXITCODE -eq 0) {
-            Write-Ok "Model indirildi: $OllamaModel"
+            Write-Ok "Model downloaded: $OllamaModel"
         } else {
-            Write-Warn "Model indirilemedi (exit $LASTEXITCODE). Elle deneyin: ollama pull $OllamaModel"
+            Write-Warn "Model download failed (exit $LASTEXITCODE). Try manually: ollama pull $OllamaModel"
         }
     }
 }
@@ -222,10 +208,10 @@ function Start-Ollama {
 # 4. Database init
 # ════════════════════════════════════════════════════════════════
 function Initialize-Database {
-    Write-Step 4 $TotalSteps "Veritabanı tabloları oluşturuluyor..."
+    Write-Step 4 $TotalSteps "Creating database tables..."
     & $VenvPython "init_db.py"
     if ($LASTEXITCODE -ne 0) {
-        Write-Err "Veritabanı başlatılamadı! (init_db.py exit $LASTEXITCODE)"
+        Write-Err "Database initialization failed! (init_db.py exit $LASTEXITCODE)"
         exit 1
     }
     Write-Ok
@@ -235,15 +221,14 @@ function Initialize-Database {
 # 5. FastAPI
 # ════════════════════════════════════════════════════════════════
 function Start-Api {
-    Write-Step 5 $TotalSteps "FastAPI sunucusu başlatılıyor..."
-    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    Write-Step 5 $TotalSteps "Starting FastAPI server..."
     $env:PYTHONIOENCODING = "utf-8"
+    $env:PYTHONUNBUFFERED = "1"
 
     $proc = Start-Process -FilePath $VenvPython `
         -ArgumentList "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info" `
         -WorkingDirectory $ProjectDir `
-        -RedirectStandardOutput $ServerLog -RedirectStandardError "$ServerLog.err" `
-        -WindowStyle Hidden -PassThru
+        -NoNewWindow -PassThru
     $script:OwnedProcs += $proc
     Write-Ok "(PID: $($proc.Id))"
 }
@@ -252,13 +237,12 @@ function Start-Api {
 # 6. Next.js dashboard
 # ════════════════════════════════════════════════════════════════
 function Start-Dashboard {
-    Write-Step 6 $TotalSteps "Next.js Dashboard başlatılıyor..."
-    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    Write-Step 6 $TotalSteps "Starting Next.js dashboard..."
 
     $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue)
     if (-not $npm) { $npm = (Get-Command npm -ErrorAction SilentlyContinue) }
     if (-not $npm) {
-        Write-Err "npm bulunamadı. Node.js kurulu mu?"
+        Write-Err "npm not found. Is Node.js installed?"
         Stop-OwnedProcs
         exit 1
     }
@@ -266,8 +250,7 @@ function Start-Dashboard {
     $proc = Start-Process -FilePath $npm.Source `
         -ArgumentList "run", "dev" `
         -WorkingDirectory $DashboardDir `
-        -RedirectStandardOutput $DashboardLog -RedirectStandardError "$DashboardLog.err" `
-        -WindowStyle Hidden -PassThru
+        -NoNewWindow -PassThru
     $script:OwnedProcs += $proc
     Write-Ok "(PID: $($proc.Id))"
 }
@@ -276,7 +259,7 @@ function Start-Dashboard {
 # 7. Wait for readiness
 # ════════════════════════════════════════════════════════════════
 function Wait-Servers {
-    Write-Step 7 $TotalSteps "Sunucuların hazır olması bekleniyor..."
+    Write-Step 7 $TotalSteps "Waiting for servers to become ready..."
     $apiReady = $false
     $dashReady = $false
     $deadline = (Get-Date).AddSeconds($StartupTimeout)
@@ -288,9 +271,7 @@ function Wait-Servers {
 
         foreach ($p in $script:OwnedProcs) {
             if ($null -ne $p -and $p.HasExited) {
-                Write-Err "Bir süreç çöktü (PID $($p.Id), exit $($p.ExitCode))."
-                Write-Host "      API logu:`n$(Get-LogTail $ServerLog)" -ForegroundColor Yellow
-                Write-Host "      Dashboard logu:`n$(Get-LogTail $DashboardLog)" -ForegroundColor Yellow
+                Write-Err "A process crashed (PID $($p.Id), exit $($p.ExitCode)). See the output above."
                 Stop-OwnedProcs
                 exit 1
             }
@@ -298,9 +279,7 @@ function Wait-Servers {
         Start-Sleep -Milliseconds 800
     }
 
-    Write-Err "Sunucular ${StartupTimeout}s içinde yanıt vermedi."
-    if (-not $apiReady)  { Write-Host "      API logu (logs/server.log):`n$(Get-LogTail $ServerLog)" -ForegroundColor Yellow }
-    if (-not $dashReady) { Write-Host "      Dashboard logu (logs/dashboard.log):`n$(Get-LogTail $DashboardLog)" -ForegroundColor Yellow }
+    Write-Err "Servers did not respond within ${StartupTimeout}s. See the output above."
     Stop-OwnedProcs
     exit 1
 }
@@ -316,8 +295,7 @@ function Invoke-ServeForever {
     Write-Host "  ─────────────────────────────────────────" -ForegroundColor DarkGray
     Write-Host "  Dashboard: $url" -ForegroundColor Green
     Write-Host "  API Docs : http://localhost:8000/docs" -ForegroundColor Green
-    Write-Host "  Loglar   : logs/server.log, logs/dashboard.log" -ForegroundColor DarkGray
-    Write-Host "  Kapatmak için Ctrl+C." -ForegroundColor DarkGray
+    Write-Host "  Logs stream below. Press Ctrl+C to stop." -ForegroundColor DarkGray
     Write-Host "  ─────────────────────────────────────────" -ForegroundColor DarkGray
     Write-Host ""
 
