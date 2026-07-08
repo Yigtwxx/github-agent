@@ -1,26 +1,26 @@
 #  GitHub Autonomous AI Agent v2.0
 
-Popüler GitHub repolarını **otomatik keşfeden**, topluluk sorularına (Issue & Discussion) **AI cevapları üreten**, çözülebilir issue'lar için **gerçek kod yamaları oluşturup PR açan** otonom bir yapay zeka ajanı.
+An autonomous AI agent that **automatically discovers** trending GitHub repositories, **generates AI answers** to community questions (Issues & Discussions), and **creates real code patches and opens PRs** for solvable issues.
 
 ---
 
-##  Özellikler
+##  Features
 
-| Özellik | Açıklama |
+| Feature | Description |
 |---|---|
-| 🔍 **Trend Avcısı** | 5 dilde (Python, JS, TS, Go, Rust) popüler repoları keşfeder, öncelik skorlar |
-| 💬 **Issue Desteği** | Issue'ları analiz eder, RAG bağlamıyla AI cevabı üretir |
-| 🗣️ **Discussion Desteği** | GitHub Discussions'a otomatik cevap üretir |
-| 🔧 **Issue Çözücü** | Çözülebilirlik analizi → Gerçek kod patch üretimi → Syntax check → Docker sandbox testi |
-| 🚀 **Otonom PR** | Fork → Branch → Commit → PR pipeline'ı |
-| 🛡️ **İnsan Onayı** | Tüm yorumlar ve PR'lar gönderilmeden önce onay bekler |
-| 📚 **RAG Pipeline** | Repo klonla → ChromaDB'ye indeksle → Issue bağlamında akıllı kod arama |
-| 🐳 **Docker Sandbox** | AI kodunu izole ortamda test eder |
-| ⚡ **Rate Limiting** | GitHub API limitlerini otomatik yönetir |
+| 🔍 **Trend Hunter** | Discovers trending repos in 5 languages (Python, JS, TS, Go, Rust) and scores them by priority |
+| 💬 **Issue Support** | Analyzes issues and generates AI answers with RAG context |
+| 🗣️ **Discussion Support** | Automatically generates replies to GitHub Discussions |
+| 🔧 **Issue Solver** | Solvability analysis → real code patch generation → syntax check → Docker sandbox test |
+| 🚀 **Autonomous PR** | Fork → Branch → Commit → PR pipeline |
+| 🛡️ **Human Approval** | All comments and PRs wait for approval before being sent |
+| 📚 **RAG Pipeline** | Clone repo → index into ChromaDB → smart code search in issue context |
+| 🐳 **Docker Sandbox** | Tests AI-generated code in an isolated environment |
+| ⚡ **Rate Limiting** | Automatically manages GitHub API limits |
 
 ---
 
-## 🛠️ Mimari
+## 🛠️ Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -44,132 +44,132 @@ Popüler GitHub repolarını **otomatik keşfeden**, topluluk sorularına (Issue
 
 ---
 
-## 🚀 Hızlı Başlangıç
+## 🚀 Quick Start
 
-### Ön Gereksinimler
+### Prerequisites
 - **Python 3.10+**
-- **PostgreSQL** (veri depolama)
-- **Ollama** + `qwen3-coder:30b` modeli
-- **Docker** (sandbox testleri için)
-- **Git** (repo klonlama için)
+- **PostgreSQL** (data storage)
+- **Ollama** + the `qwen3-coder:30b` model
+- **Docker** (for sandbox tests)
+- **Git** (for cloning repos)
 
-### 1. Kurulum
+### 1. Installation
 
 ```bash
-# Sanal ortam
+# Virtual environment
 python -m venv venv
 .\venv\Scripts\Activate.ps1   # Windows
 # source venv/bin/activate     # Linux/Mac
 
-# Bağımlılıklar
+# Dependencies
 pip install -r requirements.txt
 
-# Ollama modeli (start.ps1 bunu otomatik indirir; elle de yapabilirsiniz)
+# Ollama model (start.ps1 pulls this automatically; you can also do it manually)
 ollama pull qwen3-coder:30b
 ```
 
-### 2. Yapılandırma
+### 2. Configuration
 
 ```bash
 copy .env.example .env    # Windows
 # cp .env.example .env    # Linux/Mac
 ```
 
-`.env` dosyasını düzenleyin:
-- `GITHUB_TOKEN` → [GitHub PAT oluştur](https://github.com/settings/tokens) (gerekli yetkiler: `repo`, `read:discussion`, `write:discussion`)
-- `POSTGRES_*` → PostgreSQL bağlantı bilgileri
+Edit the `.env` file:
+- `GITHUB_TOKEN` → [Create a GitHub PAT](https://github.com/settings/tokens) (required scopes: `repo`, `read:discussion`, `write:discussion`)
+- `POSTGRES_*` → PostgreSQL connection details
 
-### 3. Veritabanı
+### 3. Database
 
-Şema değişiklikleri Alembic ile yönetilir (`create_all()` mevcut tablolara sütun eklemez).
+Schema changes are managed with Alembic (`create_all()` does not add columns to existing tables).
 
 ```bash
-# Yeni / boş veritabanı:
+# Fresh / empty database:
 python init_db.py && alembic stamp head
 
-# Mevcut veritabanını güncelle (bekleyen migration'ları uygula):
+# Update an existing database (apply pending migrations):
 alembic upgrade head
 
-# Model değiştikten sonra yeni migration üret:
-alembic revision --autogenerate -m "açıklama" && alembic upgrade head
+# Generate a new migration after changing a model:
+alembic revision --autogenerate -m "description" && alembic upgrade head
 ```
 
-### 4. Çalıştırma
+### 4. Running
 
-**Önerilen (Windows) — tek tıkla her şeyi başlatır:**
-PostgreSQL servisi + Ollama (serve & model indirme) + DB init + FastAPI (:8000) + Next.js (:3000).
+**Recommended (Windows) — starts everything with one click:**
+PostgreSQL service + Ollama (serve & model pull) + DB init + FastAPI (:8000) + Next.js (:3000).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
-Alternatifler:
+Alternatives:
 
 ```bash
-python start.py   # cross-platform; PostgreSQL/Ollama'yı başlatmaz
-python run.py     # yalnızca FastAPI (:8000)
+python start.py   # cross-platform; does NOT start PostgreSQL/Ollama
+python run.py     # FastAPI only (:8000)
 ```
 
 Dashboard: http://localhost:3000 · Swagger UI: http://localhost:8000/docs
 
 ---
 
-## 📡 API Endpoint'leri
+## 📡 API Endpoints
 
-| Method | Endpoint | Açıklama |
-|--------|----------|----------|
-| `GET` | `/` | Agent durumu |
-| `GET` | `/health` | Servis sağlığı (DB, Ollama, GitHub, Docker) |
-| `GET` | `/agent/stats` | İstatistikler |
-| `POST` | `/agent/trigger?task_type=...` | Manuel görev tetikleme |
-| `GET` | `/agent/pending-actions` | Onay bekleyen kod değişiklikleri |
-| `GET` | `/agent/pending-comments` | Onay bekleyen yorumlar |
-| `POST` | `/agent/approve-action/{id}` | Kod değişikliği onayla → PR aç |
-| `POST` | `/agent/reject-action/{id}` | Kod değişikliği reddet |
-| `POST` | `/agent/approve-comment/{id}` | Yorum onayla → GitHub'a gönder |
-| `POST` | `/agent/reject-comment/{id}` | Yorum reddet |
-| `GET` | `/agent/actions?limit=20` | Aksiyon geçmişi |
-
----
-
-## ⚙️ Yapılandırma Seçenekleri
-
-| Değişken | Varsayılan | Açıklama |
-|----------|-----------|----------|
-| `OLLAMA_MODEL` | `qwen3-coder:30b` | AI modeli |
-| `TRENDING_DAYS_AGO` | `7` | Kaç gün öncesine kadar repo ara |
-| `MIN_STARS_THRESHOLD` | `50` | Minimum yıldız sayısı |
-| `LOOP_INTERVAL_SECONDS` | `3600` | Ana döngü aralığı (saniye) |
-| `TASK_CONCURRENCY` | `3` | Paralel repo işleme sayısı |
-| `REQUIRE_APPROVAL_FOR_PR` | `true` | PR için onay gerekli mi |
-| `REQUIRE_APPROVAL_FOR_COMMENT` | `true` | Yorum için onay gerekli mi |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Agent status |
+| `GET` | `/health` | Service health (DB, Ollama, GitHub, Docker) |
+| `GET` | `/agent/stats` | Statistics |
+| `POST` | `/agent/trigger?task_type=...` | Trigger a task manually |
+| `GET` | `/agent/pending-actions` | Code changes awaiting approval |
+| `GET` | `/agent/pending-comments` | Comments awaiting approval |
+| `POST` | `/agent/approve-action/{id}` | Approve code change → open PR |
+| `POST` | `/agent/reject-action/{id}` | Reject code change |
+| `POST` | `/agent/approve-comment/{id}` | Approve comment → post to GitHub |
+| `POST` | `/agent/reject-comment/{id}` | Reject comment |
+| `GET` | `/agent/actions?limit=20` | Action history |
 
 ---
 
-## 📁 Proje Yapısı
+## ⚙️ Configuration Options
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OLLAMA_MODEL` | `qwen3-coder:30b` | AI model |
+| `TRENDING_DAYS_AGO` | `7` | How many days back to search for repos |
+| `MIN_STARS_THRESHOLD` | `50` | Minimum star count |
+| `LOOP_INTERVAL_SECONDS` | `3600` | Main loop interval (seconds) |
+| `TASK_CONCURRENCY` | `3` | Number of repos processed in parallel |
+| `REQUIRE_APPROVAL_FOR_PR` | `true` | Whether PRs require approval |
+| `REQUIRE_APPROVAL_FOR_COMMENT` | `true` | Whether comments require approval |
+
+---
+
+## 📁 Project Structure
 
 ```
 github-agent/
 ├── agent/
-│   ├── orchestrator.py      # Ana orkestratör (6 phase pipeline)
-│   ├── providers/           # Değiştirilebilir LLM provider'ları (Groq/Ollama/HF)
-│   ├── ai/                  # AIReasoningService (provider-bağımsız akıl yürütme)
+│   ├── orchestrator.py      # Main orchestrator (6 phase pipeline)
+│   ├── providers/           # Swappable LLM providers (Groq/Ollama/HF)
+│   ├── ai/                  # AIReasoningService (provider-agnostic reasoning)
 │   └── tools/
 │       ├── github_client.py  # GitHub API (GraphQL + REST)
 │       ├── chroma_client.py  # RAG pipeline
 │       └── docker_env.py     # Docker sandbox
 ├── api/
-│   └── main.py              # FastAPI endpoint'leri
+│   └── main.py              # FastAPI endpoints
 ├── core/
-│   └── config.py            # Konfigürasyon
+│   └── config.py            # Configuration
 ├── database/
-│   ├── models.py            # 6 SQLAlchemy modeli
-│   └── session.py           # DB bağlantı yönetimi
-├── workspace/               # Klonlanan repolar (otomatik)
-├── chroma_db/               # Vektör DB (otomatik)
-├── alembic/                 # DB şema migration'ları (Alembic)
-├── run.py                   # Başlatma
-├── init_db.py               # DB tabloları oluşturma (bootstrap)
+│   ├── models.py            # 6 SQLAlchemy models
+│   └── session.py           # DB connection management
+├── workspace/               # Cloned repos (auto-generated)
+├── chroma_db/               # Vector DB (auto-generated)
+├── alembic/                 # DB schema migrations (Alembic)
+├── run.py                   # Entry point
+├── init_db.py               # DB table creation (bootstrap)
 ├── requirements.txt
 ├── .env.example
 └── .gitignore
